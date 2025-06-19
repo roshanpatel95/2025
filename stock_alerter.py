@@ -155,6 +155,19 @@ def analyze_stock(df, ticker_symbol):
     overall_buy = (price_over_ema35 and price_over_ema50 and price_over_ema200 and
                    macd_bullish_crossover)
 
+    # --- Log all conditions and values for debugging ---
+    logging.info(f"--- Debugging {ticker_symbol} ---")
+    logging.info(f"  Current Close: {latest_close:.2f}")
+    logging.info(f"  EMA 35: {latest_ema35:.2f} (Price > EMA 35: {price_over_ema35})")
+    logging.info(f"  EMA 50: {latest_ema50:.2f} (Price > EMA 50: {price_over_ema50})")
+    logging.info(f"  EMA 200: {latest_ema200:.2f} (Price > EMA 200: {price_over_ema200})")
+    logging.info(f"  RSI: {latest_rsi:.2f} (RSI < {RSI_BUYING_THRESHOLD}: {rsi_in_buy_range})")
+    logging.info(f"  KC Lower: {latest_kc_lower:.2f} (Price < KC Lower: {kc_in_buy_range})")
+    logging.info(f"  MACD Line: {latest_macd_line:.2f}, Signal: {latest_signal_line:.2f}, Hist: {latest_macd_hist:.2f} (Bullish Crossover: {macd_bullish_crossover})")
+    logging.info(f"  Overall BUY (EMAs + MACD): {overall_buy}")
+    logging.info(f"--- End Debugging {ticker_symbol} ---")
+
+
     results = {
         "ticker": ticker_symbol,
         "price": latest_close,
