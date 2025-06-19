@@ -151,9 +151,9 @@ def analyze_stock(df, ticker_symbol):
         macd_bullish_crossover = (latest_macd_line > latest_signal_line and
                                   macd_line.iloc[-2] <= signal_line.iloc[-2])
 
-    # Overall BUY condition: ALL must be true (EMAs, RSI, KC, MACD)
+    # Overall BUY condition: EMAs and MACD bullish crossover only (RSI & KC removed from strict BUY logic)
     overall_buy = (price_over_ema35 and price_over_ema50 and price_over_ema200 and
-                   rsi_in_buy_range and kc_in_buy_range and macd_bullish_crossover)
+                   macd_bullish_crossover)
 
     results = {
         "ticker": ticker_symbol,
@@ -169,8 +169,8 @@ def analyze_stock(df, ticker_symbol):
         "price_over_ema35": price_over_ema35,
         "price_over_ema50": price_over_ema50,
         "price_over_ema200": price_over_ema200,
-        "rsi_in_buy_range": rsi_in_buy_range,
-        "kc_in_buy_range": kc_in_buy_range,
+        "rsi_in_buy_range": rsi_in_buy_range, # Still calculated for potential future use or display
+        "kc_in_buy_range": kc_in_buy_range,   # Still calculated for potential future use or display
         "macd_bullish_crossover": macd_bullish_crossover,
         "overall_buy": overall_buy
     }
@@ -194,14 +194,13 @@ def send_discord_consolidated_alert(webhook_url, buy_signals):
 
     for signal in buy_signals:
         ticker = signal['ticker']
+        # The details for Discord message now only include EMAs and MACD
         details = (
             f"**{ticker}:** "
             f"Price ${signal['price']:.2f} | "
             f"EMA35 ${signal['ema35']:.2f} | "
             f"EMA50 ${signal['ema50']:.2f} | "
             f"EMA200 ${signal['ema200']:.2f} | "
-            f"RSI {signal['rsi']:.2f} | "
-            f"KC Lower ${signal['kc_lower']:.2f} | "
             f"MACD Hist {signal['macd_hist']:.2f}"
         )
         current_description.append(details)
@@ -275,3 +274,4 @@ if __name__ == "__main__":
         send_discord_consolidated_alert(DISCORD_WEBHOOK_URL, buy_signals_found)
     else:
         logging.info("No stocks met all BUY conditions today.")
+
