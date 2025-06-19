@@ -13,29 +13,9 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # List of tickers to monitor
 TICKERS = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "FB", "TSLA", "NVDA", "JPM", "V", "JNJ",
-    "UNH", "PG", "HD", "MA", "DIS", "CMCSA", "NFLX", "ADBE", "PYPL", "INTC",
-    "CSCO", "PEP", "KO", "XOM", "CVX", "WMT", "BAC", "VZ", "PFE", "MRK",
-    "TMO", "NKE", "MCD", "BA", "IBM", "ORCL", "CRM", "SAP", "AMD", "QCOM",
-    "TXN", "AMAT", "MU", "GE", "F", "GM", "SBUX", "COST", "TGT", "LMT",
-    "GD", "RTX", "HON", "CAT", "DE", "MMM", "GS", "MS", "AXP", "C",
-    "SCHW", "BLK", "SPG", "PLD", "EQIX", "AMT", "CCI", "DLR", "PSA", "EXR",
-    "O", "VNQ", "XLK", "XLF", "XLC", "XLI", "XLE", "XLV", "XLP", "XLU",
-    "XLB", "XLY", "KMI", "WFC", "GOOG", "BRK-B", "BABA", "TM", "SNEJF",
-    "BP", "CVS", "MO", "PM", "UPS", "FDX", "RTN", "GD", "DUK", "SO",
-    "NEE", "AEP", "SRE", "XEL", "PCG", "D", "ED", "EXC", "FE", "WEC",
-    "PPL", "PEG", "EIX", "CMS", "CNP", "NI", "ETR", "AWK", "ATO", "ES",
-    "XEL", "PNW", "EVRG", "LNT", "OGE", "FRC", "REGN", "GILD", "AMGN", "BIIB",
-    "VRTX", "BMY", "LLY", "ABBV", "AGN", "CVS", "WBA", "CZR", "MGM", "WYNN",
-    "LVS", "SGMS", "MAR", "HLT", "BKNG", "EXPE", "ABNB", "UBER", "LYFT", "DASH",
-    "SNAP", "PINS", "TWTR", "META", "ZM", "DOCU", "NOW", "WDAY", "SNOW", "CRWD",
-    "OKTA", "NET", "DDOG", "ZS", "ADSK", "ANSS", "CDNS", "FTNT", "PANW", "ZS",
-    "CHKP", "KLAC", "LRCX", "TER", "ENPH", "SEDG", "RUN", "SPWR", "FSLR", "DQ",
-    "TSM", "ASML", "UMC", "SMIC", "STM", "INFY", "TCS", "WIPRO", "HCLTECH", "TECHM",
-    "INFY", "WIT", "HDB", "ICICI", "HDFC", "AXISBANK", "RELIANCE", "TATASTEEL", "IOC", "BPCL",
-    "ONGC", "GAIL", "NTPC", "POWERGRID", "SBI", "PNB", "BOB", "CANBK", "UNIONBANK", "INDUSINDBK",
-    "KOTAKBANK", "YESBANK", "BANDHANBNK", "IDFCFIRSTB", "RBLBANK", "AUBANK", "FEDERALBNK", "DCB", "CSBBANK", "KARURVYSYA",
-    # Add many more as needed for a truly comprehensive list...
+    "NVDA", "TSLA", "SPY", "QQQ", "AAPL", "AMZN", "AMD", "MSFT", "META", "RDDT",
+    "CRWV", "GOOGL", "AVGO", "BRK.B", "TSM", "LLY", "WMT", "JPM", "V", "ORCL",
+    "NFLX", "MA", "XOM", "COST", "JNJ", "PG", "KO", "PLTR", "UNH", "BABA"
 ]
 # Indicator parameters (matching Pine Script defaults where applicable)
 EMA_35_LEN = 35
