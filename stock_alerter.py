@@ -4,19 +4,27 @@ import pandas as pd
 import numpy as np
 import requests
 import os
+import time
+import logging
 from datetime import datetime
 
+# --- Configure Logging ---
+# Set up logging to provide more detailed output in GitHub Actions logs
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 # --- Configuration ---
-# The Discord Webhook URL will be read from environment variables when run via GitHub Actions.
-# For local testing, you can uncomment and set it directly, but for GitHub, it MUST be a secret.
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
-# List of tickers to monitor
+# --- Example of a much larger list of US stocks (concept only) ---
+# In a real-world scenario, you would load a comprehensive list
+# from a file (e.g., CSV from NASDAQ/NYSE) or a dedicated API.
+# This list is for demonstration purposes and covers various sectors.
 TICKERS = [
     "NVDA", "TSLA", "SPY", "QQQ", "AAPL", "AMZN", "AMD", "MSFT", "META", "RDDT",
     "CRWV", "GOOGL", "AVGO", "BRK.B", "TSM", "LLY", "WMT", "JPM", "V", "ORCL",
     "NFLX", "MA", "XOM", "COST", "JNJ", "PG", "KO", "PLTR", "UNH", "BABA"
 ]
+
 # Indicator parameters (matching Pine Script defaults where applicable)
 EMA_35_LEN = 35
 EMA_50_LEN = 50
@@ -29,6 +37,10 @@ KC_ATR_LEN = 10
 MACD_FAST_LEN = 12
 MACD_SLOW_LEN = 26
 MACD_SIGNAL_LEN = 9
+
+# Delay between fetching data for each ticker (in seconds)
+# This helps prevent rate limiting issues with Yahoo Finance.
+FETCH_DELAY_SECONDS = 0.5 # Half a second delay
 
 # --- Helper Functions for Indicator Calculations ---
 
@@ -69,18 +81,29 @@ def get_stock_data(ticker, period="1y", interval="1d"):
     """Fetches historical stock data from Yahoo Finance."""
     try:
         stock = yf.Ticker(ticker)
+        # Using .json() to bypass an issue with yfinance's history() for some tickers
+        # and to ensure data is fetched before calling .history()
+        # This is a common workaround for intermittent yfinance issues
+        stock_info = stock.info # Access info to ensure ticker is valid
         data = stock.history(period=period, interval=interval)
         if data.empty:
-            print(f"No data found for {ticker}")
+            logging.warning(f"No data found for {ticker}")
             return None
         return data
     except Exception as e:
-        print(f"Error fetching data for {ticker}: {e}")
+        logging.error(f"Error fetching data for {ticker}: {e}")
         return None
 
-def analyze_stock(df):
-    """Calculates all indicators and checks conditions."""
+def analyze_stock(df, ticker_symbol):
+    """Calculates all indicators and checks conditions for a single stock."""
     if df is None or df.empty:
+        logging.warning(f"Skipping analysis for {ticker_symbol} due to empty or invalid DataFrame.")
+        return None
+
+    # Ensure enough data points for all calculations (e.g., 200 for EMA200)
+    required_data_points = max(EMA_200_LEN, RSI_LEN, KC_LEN, KC_ATR_LEN, MACD_SLOW_LEN + MACD_SIGNAL_LEN)
+    if len(df) < required_data_points:
+        logging.warning(f"Not enough data for {ticker_symbol} to calculate all indicators. Needs at least {required_data_points} bars, has {len(df)}.")
         return None
 
     close_prices = df['Close']
@@ -92,10 +115,10 @@ def analyze_stock(df):
     ema50 = calculate_ema(close_prices, EMA_50_LEN)
     ema200 = calculate_ema(close_prices, EMA_200_LEN)
 
-    # RSI
+    # RSI (Still calculated but not used in overall_buy logic)
     rsi = calculate_rsi(close_prices, RSI_LEN)
 
-    # Keltner Channels
+    # Keltner Channels (Still calculated but not used in overall_buy logic)
     kc_basis = calculate_ema(close_prices, KC_LEN)
     kc_atr = calculate_atr(high_prices, low_prices, close_prices, KC_ATR_LEN)
     kc_upper = kc_basis + kc_atr * KC_MULTIPLIER
@@ -104,7 +127,11 @@ def analyze_stock(df):
     # MACD
     macd_line, signal_line, macd_hist = calculate_macd(close_prices, MACD_FAST_LEN, MACD_SLOW_LEN, MACD_SIGNAL_LEN)
 
-    # Get latest values
+    # Get latest values (ensure they are not NaN after calculations)
+    if any(pd.isna([ema35.iloc[-1], ema50.iloc[-1], ema200.iloc[-1], rsi.iloc[-1], kc_lower.iloc[-1], macd_line.iloc[-1], signal_line.iloc[-1], macd_hist.iloc[-1]])):
+        logging.warning(f"NaN values encountered for {ticker_symbol} in latest indicator calculations. Skipping.")
+        return None
+
     latest_close = close_prices.iloc[-1]
     latest_ema35 = ema35.iloc[-1]
     latest_ema50 = ema50.iloc[-1]
@@ -119,15 +146,22 @@ def analyze_stock(df):
     price_over_ema35 = latest_close > latest_ema35
     price_over_ema50 = latest_close > latest_ema50
     price_over_ema200 = latest_close > latest_ema200
-    rsi_in_buy_range = latest_rsi < RSI_BUYING_THRESHOLD
-    kc_in_buy_range = latest_close < latest_kc_lower # Price below lower Keltner band
-    macd_bullish_crossover = latest_macd_line > latest_signal_line and macd_line.iloc[-2] <= signal_line.iloc[-2] # Check for actual crossover
+    # RSI and KC conditions removed from overall_buy logic
+    rsi_in_buy_range = latest_rsi < RSI_BUYING_THRESHOLD # Still calculated for display
+    kc_in_buy_range = latest_close < latest_kc_lower # Still calculated for display
 
-    # Overall BUY condition: ALL must be true
+    # Check for actual crossover (current MACD > Signal AND previous MACD <= previous Signal)
+    macd_bullish_crossover = False
+    if len(macd_line) > 1 and len(signal_line) > 1:
+        macd_bullish_crossover = (latest_macd_line > latest_signal_line and
+                                  macd_line.iloc[-2] <= signal_line.iloc[-2])
+
+    # Overall BUY condition: Only EMAs and MACD bullish crossover
     overall_buy = (price_over_ema35 and price_over_ema50 and price_over_ema200 and
-                   rsi_in_buy_range and kc_in_buy_range and macd_bullish_crossover)
+                   macd_bullish_crossover)
 
     results = {
+        "ticker": ticker_symbol,
         "price": latest_close,
         "ema35": latest_ema35,
         "ema50": latest_ema50,
@@ -140,86 +174,111 @@ def analyze_stock(df):
         "price_over_ema35": price_over_ema35,
         "price_over_ema50": price_over_ema50,
         "price_over_ema200": price_over_ema200,
-        "rsi_in_buy_range": rsi_in_buy_range,
-        "kc_in_buy_range": kc_in_buy_range,
+        "rsi_in_buy_range": rsi_in_buy_range, # Keep for potential future use or display
+        "kc_in_buy_range": kc_in_buy_range,   # Keep for potential future use or display
         "macd_bullish_crossover": macd_bullish_crossover,
         "overall_buy": overall_buy
     }
     return results
 
-def send_discord_alert(webhook_url, ticker, analysis_results):
-    """Sends a formatted alert message to Discord."""
-    if not webhook_url: # Check if webhook_url is None or empty
-        print("Discord Webhook URL not set in environment variables. Skipping alert.")
+def send_discord_consolidated_alert(webhook_url, buy_signals):
+    """Sends a consolidated alert message to Discord for all BUY signals."""
+    if not webhook_url:
+        logging.error("Discord Webhook URL environment variable is not set. Skipping alert.")
         return
 
-    buy_status = "✅ BUY SIGNAL! ✅" if analysis_results["overall_buy"] else "❌ HOLD ❌"
-    color = 65280 if analysis_results["overall_buy"] else 16711680 # Green or Red
+    if not buy_signals:
+        logging.info("No BUY signals found to send a Discord alert.")
+        return
 
-    description = (
-        f"**Current Price:** ${analysis_results['price']:.2f}\n"
-        f"--- Indicator Details ---\n"
-        f"- **Price > EMA 35**: {'True' if analysis_results['price_over_ema35'] else 'False'} (EMA 35: {analysis_results['ema35']:.2f})\n"
-        f"- **Price > EMA 50**: {'True' if analysis_results['price_over_ema50'] else 'False'} (EMA 50: {analysis_results['ema50']:.2f})\n"
-        f"- **Price > EMA 200**: {'True' if analysis_results['price_over_ema200'] else 'False'} (EMA 200: {analysis_results['ema200']:.2f})\n"
-        f"- **RSI < {RSI_BUYING_THRESHOLD}**: {'True' if analysis_results['rsi_in_buy_range'] else 'False'} (RSI: {analysis_results['rsi']:.2f})\n"
-        f"- **Price < KC Lower**: {'True' if analysis_results['kc_in_buy_range'] else 'False'} (KC Lower: {analysis_results['kc_lower']:.2f})\n"
-        f"- **MACD Bullish Crossover**: {'True' if analysis_results['macd_bullish_crossover'] else 'False'} (MACD Hist: {analysis_results['macd_hist']:.2f})"
-    )
+    # Maximum fields per embed is 25, so we might need multiple embeds if many signals
+    MAX_FIELDS_PER_EMBED = 20 # Leave some room for other elements
+    embeds = []
+    current_description = []
+    
+    # Header for the main message
+    main_content = f"**Daily Stock Analysis - BUY Signals ({datetime.now().strftime('%Y-%m-%d')})**"
 
-    embed = {
-        "title": f"📈 Stock Analysis for {ticker} 📈",
-        "description": description,
-        "color": color,
-        "footer": {
-            "text": f"Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        }
-    }
+    for signal in buy_signals:
+        ticker = signal['ticker']
+        details = (
+            f"**{ticker}:** "
+            f"Price ${signal['price']:.2f} | "
+            f"EMA35 ${signal['ema35']:.2f} | "
+            f"EMA50 ${signal['ema50']:.2f} | "
+            f"EMA200 ${signal['ema200']:.2f} | "
+            f"MACD Hist {signal['macd_hist']:.2f}"
+            # RSI and KC details removed from condensed message
+        )
+        current_description.append(details)
+
+        if len(current_description) >= MAX_FIELDS_PER_EMBED:
+            embeds.append({
+                "title": "📈 Consolidated BUY Signals 📈",
+                "description": "\n".join(current_description),
+                "color": 65280, # Green
+                "footer": {
+                    "text": f"Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                }
+            })
+            current_description = [] # Reset for next embed
+
+    # Add any remaining signals to the last embed
+    if current_description:
+        embeds.append({
+            "title": "📈 Consolidated BUY Signals 📈",
+            "description": "\n".join(current_description),
+            "color": 65280, # Green
+            "footer": {
+                "text": f"Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            }
+        })
 
     payload = {
-        "content": f"**{ticker} Daily Chart Analysis:** {buy_status}",
-        "embeds": [embed]
+        "content": main_content,
+        "embeds": embeds
     }
 
     try:
         response = requests.post(webhook_url, json=payload)
         response.raise_for_status() # Raise an exception for HTTP errors
-        print(f"Discord alert sent successfully for {ticker}.")
+        logging.info(f"Consolidated Discord alert sent successfully with {len(buy_signals)} BUY signals.")
     except requests.exceptions.RequestException as e:
-        print(f"Failed to send Discord alert for {ticker}: {e}")
+        logging.error(f"Failed to send consolidated Discord alert: {e}")
 
 # --- Main Script Execution ---
 if __name__ == "__main__":
-    # In GitHub Actions, DISCORD_WEBHOOK_URL will be set by the secret.
-    # For local testing, you might need to set it manually or via your shell.
-    # Example for local testing: export DISCORD_WEBHOOK_URL="your_webhook_url_here"
-    
     if not DISCORD_WEBHOOK_URL:
-        print("DISCORD_WEBHOOK_URL environment variable is not set.")
-        print("Please set it before running the script, especially for local testing.")
-        print("When using GitHub Actions, ensure you've configured it as a repository secret.")
-        exit(1) # Exit if webhook URL is not set
+        logging.error("DISCORD_WEBHOOK_URL environment variable is not set. Please set it as a GitHub Secret.")
+        exit(1)
 
-    for ticker in TICKERS:
-        print(f"\nAnalyzing {ticker}...")
+    buy_signals_found = []
+    total_tickers = len(TICKERS)
+    
+    logging.info(f"Starting analysis for {total_tickers} tickers.")
+
+    for i, ticker in enumerate(TICKERS):
+        logging.info(f"({i+1}/{total_tickers}) Analyzing {ticker}...")
         data = get_stock_data(ticker)
         if data is not None and not data.empty:
-            analysis = analyze_stock(data)
-            if analysis:
-                print(f"Analysis Results for {ticker}:")
-                for key, value in analysis.items():
-                    if isinstance(value, (float, np.float64)):
-                        print(f"- {key}: {value:.2f}")
-                    else:
-                        print(f"- {key}: {value}")
-
-                if analysis["overall_buy"]:
-                    print(f"*** {ticker}: Overall BUY Signal detected! ***")
-                    send_discord_alert(DISCORD_WEBHOOK_URL, ticker, analysis)
-                else:
-                    print(f"--- {ticker}: No Overall BUY Signal. Holding. ---")
+            analysis = analyze_stock(data, ticker)
+            if analysis and analysis["overall_buy"]:
+                logging.info(f"*** {ticker}: Overall BUY Signal detected! ***")
+                buy_signals_found.append(analysis)
+            elif analysis: # Only log if analysis was successful but not a buy
+                logging.info(f"--- {ticker}: No Overall BUY Signal. Holding. ---")
             else:
-                print(f"Could not perform analysis for {ticker}.")
+                logging.warning(f"Could not complete analysis for {ticker}.")
         else:
-            print(f"Skipping analysis for {ticker} due to no data.")
+            logging.warning(f"Skipping analysis for {ticker} due to no data.")
+
+        # Add a delay between requests to avoid hitting rate limits
+        if i < total_tickers - 1: # Don't sleep after the last ticker
+            time.sleep(FETCH_DELAY_SECONDS)
+
+    if buy_signals_found:
+        logging.info(f"Found {len(buy_signals_found)} stocks with BUY signals. Sending consolidated alert...")
+        send_discord_consolidated_alert(DISCORD_WEBHOOK_URL, buy_signals_found)
+    else:
+        logging.info("No stocks met all BUY conditions today.")
 
