@@ -122,7 +122,6 @@ def analyze_stock(df, ticker_symbol):
     macd_line, signal_line, macd_hist = calculate_macd(close_prices, MACD_FAST_LEN, MACD_SLOW_LEN, MACD_SIGNAL_LEN)
 
     # Get latest values (ensure they are not NaN after calculations)
-    # Check if the last elements are NaN before accessing
     if any(pd.isna([ema35.iloc[-1], ema50.iloc[-1], ema200.iloc[-1], rsi.iloc[-1], kc_lower.iloc[-1], macd_line.iloc[-1], signal_line.iloc[-1], macd_hist.iloc[-1]])):
         logging.warning(f"NaN values encountered for {ticker_symbol} in latest indicator calculations. Skipping.")
         return None
@@ -145,15 +144,12 @@ def analyze_stock(df, ticker_symbol):
     rsi_in_buy_range = latest_rsi < RSI_BUYING_THRESHOLD
     kc_in_buy_range = latest_close < latest_kc_lower # Price below lower Keltner band
 
-    # Check for actual crossover (current MACD > Signal AND previous MACD <= previous Signal)
-    macd_bullish_crossover = False
-    if len(macd_line) > 1 and len(signal_line) > 1: # Ensure there are at least two data points for crossover check
-        macd_bullish_crossover = (latest_macd_line > latest_signal_line and
-                                  macd_line.iloc[-2] <= signal_line.iloc[-2])
+    # MACD condition: MACD Line is simply above Signal Line (Option A)
+    macd_bullish_condition = latest_macd_line > latest_signal_line
 
-    # Overall BUY condition: EMAs and MACD bullish crossover only (RSI & KC removed from strict BUY logic)
+    # Overall BUY condition: EMAs and MACD bullish condition
     overall_buy = (price_over_ema35 and price_over_ema50 and price_over_ema200 and
-                   macd_bullish_crossover)
+                   macd_bullish_condition) # Changed from macd_bullish_crossover
 
     # --- Log all conditions and values for debugging ---
     logging.info(f"--- Debugging {ticker_symbol} ---")
@@ -163,7 +159,7 @@ def analyze_stock(df, ticker_symbol):
     logging.info(f"  EMA 200: {latest_ema200:.2f} (Price > EMA 200: {price_over_ema200})")
     logging.info(f"  RSI: {latest_rsi:.2f} (RSI < {RSI_BUYING_THRESHOLD}: {rsi_in_buy_range})")
     logging.info(f"  KC Lower: {latest_kc_lower:.2f} (Price < KC Lower: {kc_in_buy_range})")
-    logging.info(f"  MACD Line: {latest_macd_line:.2f}, Signal: {latest_signal_line:.2f}, Hist: {latest_macd_hist:.2f} (Bullish Crossover: {macd_bullish_crossover})")
+    logging.info(f"  MACD Line: {latest_macd_line:.2f}, Signal: {latest_signal_line:.2f}, Hist: {latest_macd_hist:.2f} (MACD Line > Signal Line: {macd_bullish_condition})") # Log updated for clarity
     logging.info(f"  Overall BUY (EMAs + MACD): {overall_buy}")
     logging.info(f"--- End Debugging {ticker_symbol} ---")
 
@@ -182,9 +178,9 @@ def analyze_stock(df, ticker_symbol):
         "price_over_ema35": price_over_ema35,
         "price_over_ema50": price_over_ema50,
         "price_over_ema200": price_over_ema200,
-        "rsi_in_buy_range": rsi_in_buy_range, # Still calculated for potential future use or display
-        "kc_in_buy_range": kc_in_buy_range,   # Still calculated for potential future use or display
-        "macd_bullish_crossover": macd_bullish_crossover,
+        "rsi_in_buy_range": rsi_in_buy_range,
+        "kc_in_buy_range": kc_in_buy_range,
+        "macd_bullish_condition": macd_bullish_condition, # New key for the updated MACD check
         "overall_buy": overall_buy
     }
     return results
